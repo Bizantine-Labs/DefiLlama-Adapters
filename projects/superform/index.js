@@ -30,7 +30,8 @@ const CONFIG = {
   base: {},
   fantom: { factory: '0xbc85043544CC2b3Fd095d54b6431822979BBB62A' },
   blast: {},
-  linea: {}
+  linea: {},
+  flare: { factory: null }
 }
 
 
@@ -42,34 +43,34 @@ const previewRedeemFromAbi = "function previewRedeemFrom(uint256) external view 
 
 
 const tvl = async (api) => {
-  // Superform v1 TVL
   const { factory = DEFAULT_FACTORY, blacklistedVaults = [] } = CONFIG[api.chain]
-  const forms = await api.fetchList({ lengthAbi: 'getSuperformCount', itemAbi: "function superforms(uint256) external view returns(uint256)", target: factory })
-  const getSuperformRes = await api.multiCall({ abi: "function getSuperform(uint256) external view returns(address, uint32, uint64)", calls: forms, target: factory })
-  const super4626 = getSuperformRes.map(v => v[0])
-  const vaults = await api.multiCall({ abi: 'address:vault', calls: super4626 })
 
+  // Superform v1 TVL (skip on chains without a factory deployment)
+  if (factory) {
+    const forms = await api.fetchList({ lengthAbi: 'getSuperformCount', itemAbi: "function superforms(uint256) external view returns(uint256)", target: factory })
+    const getSuperformRes = await api.multiCall({ abi: "function getSuperform(uint256) external view returns(address, uint32, uint64)", calls: forms, target: factory })
+    const super4626 = getSuperformRes.map(v => v[0])
+    const vaults = await api.multiCall({ abi: 'address:vault', calls: super4626 })
 
-  const pairs = vaults
-    .map((v, i) => ({ vault: v, s: super4626[i] }))
-    .filter(p => p.vault && !blacklistedVaults.includes(p.vault.toLowerCase()))
+    const pairs = vaults
+      .map((v, i) => ({ vault: v, s: super4626[i] }))
+      .filter(p => p.vault && !blacklistedVaults.includes(p.vault.toLowerCase()))
 
+    if (pairs.length > 0) {
+      const filteredVaults = pairs.map(p => p.vault);
+      const filteredSuper4626 = pairs.map(p => p.s);
 
-  if (pairs.length === 0) return;
-  const filteredVaults = pairs.map(p => p.vault);
-  const filteredSuper4626 = pairs.map(p => p.s);
+      const assets = await api.multiCall({ abi: 'address:asset', calls: filteredSuper4626 })
+      const vBals = await api.multiCall({ abi: "erc20:balanceOf", calls: filteredVaults.map((v, i) => ({ target: v, params: filteredSuper4626[i] })) })
+      const bals = await api.multiCall({ abi: previewRedeemFromAbi, calls: filteredSuper4626.map((v, i) => ({ target: v, params: vBals[i] })), permitFailure: true })
 
-
-  const assets = await api.multiCall({ abi: 'address:asset', calls: filteredSuper4626 })
-  const vBals = await api.multiCall({ abi: "erc20:balanceOf", calls: filteredVaults.map((v, i) => ({ target: v, params: filteredSuper4626[i] })) })
-  const bals = await api.multiCall({ abi: previewRedeemFromAbi, calls: filteredSuper4626.map((v, i) => ({ target: v, params: vBals[i] })), permitFailure: true })
-
-
-  bals.forEach((bal, i) => {
-    const asset = assets[i]
-    if (!bal || !asset) return
-    api.add(asset, bal)
-  })
+      bals.forEach((bal, i) => {
+        const asset = assets[i]
+        if (!bal || !asset) return
+        api.add(asset, bal)
+      })
+    }
+  }
 
 
   // SuperVault v2 TVL
