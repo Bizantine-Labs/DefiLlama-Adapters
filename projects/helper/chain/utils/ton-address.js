@@ -51,13 +51,7 @@ function parseFriendlyAddress(src) {
 	if (tag !== bounceable_tag && tag !== non_bounceable_tag)
 		throw "Unknown address tag";
 	isBounceable = tag === bounceable_tag;
-	let workchain = null;
-	if (addr[1] === 0xff) {
-		// TODO we should read signed integer here
-		workchain = -1;
-	} else {
-		workchain = addr[1];
-	}
+	const workchain = addr.readInt8(1);
 	const hashPart = addr.subarray(2, 34);
 	return { isTestOnly, isBounceable, workchain, hashPart };
 }
